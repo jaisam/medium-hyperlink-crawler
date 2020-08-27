@@ -1,2 +1,5 @@
 .env
 node_modules
+deleteScript.js
+app-with-comments.js
+hyperlinkScrapper.js
