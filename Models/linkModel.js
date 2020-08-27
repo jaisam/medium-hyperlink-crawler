@@ -3,7 +3,8 @@ const mongoose = require('mongoose');
 const linkSchema = mongoose.Schema({
     url: {
         type: String,
-        required: true
+        required: [true, 'A Url is required parameter'],
+        unique: true
     },
     count : {
         type : Number,
