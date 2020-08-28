@@ -38,8 +38,7 @@ mongoose.connect(process.env.db_url,
 
 
 // Helper Function
-const crawlAndParseUrl = (url) => { 
-    console.log('Inside crawlAndPraseUrl');
+const crawlAndParseUrl = (url) => {  
     return new Promise(function (resolve, reject) {
         return axios.get(url)
         .then(response => {
@@ -89,7 +88,7 @@ const crawlAndParseUrl = (url) => {
 
             console.log('************** globalLinksArray **************', globalLinksArray);
             console.log('************** globalLinksObjectArray **************', globalLinksObjectArray);
-            console.log('Return back to hypercraler');
+ 
             return resolve();
         })
         .catch(err => {
@@ -102,8 +101,8 @@ const crawlAndParseUrl = (url) => {
 
 
 const persistData = async () => {
-        let dbPromises = [];
-        console.log('Inside persistData');
+        let dbPromises = []; 
+
         for(let i = 0 ; i < globalLinksObjectArray.length; i++){
             dbPromises.push(
                 Link.findOne({
@@ -111,10 +110,6 @@ const persistData = async () => {
                 })
                 .then((dbLinkObj) => {
                     let dbPromise;
-                    
-                    console.log('----------------------------------------');
-                    console.log('Start First then ', globalLinksObjectArray[i].url);
-                    // console.log('dbLinkObj ', dbLinkObj);
         
                     if(dbLinkObj) {
                         // Update old object  
@@ -124,20 +119,15 @@ const persistData = async () => {
                                 dbLinkObj.params.push(param); 
                             }
                         });
-                        dbPromise = dbLinkObj.save();
-                        // console.log('Saving Object', dbPromise);
+                        dbPromise = dbLinkObj.save(); 
                     } else { 
-                        dbPromise = Link.create(globalLinksObjectArray[i]);
-                        // console.log('Creating Object ', dbPromise);
+                        dbPromise = Link.create(globalLinksObjectArray[i]); 
                     }
-                    
-                    console.log('Before return dbPromise ', globalLinksObjectArray[i].url);
-        
+                     
                     return dbPromise;
                 })
                 .then(record => { 
-                    // console.log('record =>', record); 
-                    console.log('End of persistData');
+                    // console.log('record =>', record);  
                     return resolve();
                 })
                 .catch(err => {
@@ -157,19 +147,14 @@ const hyperlinkCrawler = async (url) => {
     globalLinksArray.push(process.env.url);
     
     for(let i = 0 ; i <= globalLinksArray.length ; i++){
-        if( urlPromisesList.length >= limit || i == globalLinksArray.length ) {
-            console.log('####### Inside ELSE ####### i is ' + i + ' globalLinksArray.length ' + globalLinksArray.length);
-            const response = await Promise.all(urlPromisesList);
-            console.log('After promise.all');
-            await persistData();
-            console.log('After persistData : i ' + i + ' globalLinksArray.length ' + globalLinksArray.length );
+        if( urlPromisesList.length >= limit || i == globalLinksArray.length ) { 
+            const response = await Promise.all(urlPromisesList); 
+            await persistData(); 
             i--;
             urlPromisesList = [];
         }
         else {
-            urlPromisesList.push(crawlAndParseUrl(globalLinksArray[i]));
-            console.log('******** Inside IF ***** i is ' + i + ' globalLinksArray.length ' + globalLinksArray.length);
+            urlPromisesList.push(crawlAndParseUrl(globalLinksArray[i])); 
         }
-    }
-    console.log('Outside for loop');
+    } 
 };
