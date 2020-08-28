@@ -3,6 +3,8 @@ const axios = require('axios');
 const url = require('url');
 const mongoose = require('mongoose');
 const Link = require('./Models/linkModel');
+const { db } = require('./Models/linkModel');
+const { resolve } = require('path');
 require('dotenv').config();
 
 let limit = 5;
@@ -37,125 +39,58 @@ mongoose.connect(process.env.db_url,
 
 // Helper Function
 const crawlAndParseUrl = (url) => { 
+    console.log('Inside crawlAndPraseUrl');
     return new Promise(function (resolve, reject) {
-        let paramMismatch = false;
-
-        console.log('----------------------------------------');
-        console.log('Initial call ', url);
-        console.log('+++++++++++++++++++++++++++++++++++++++++');
-
-        Link.findOne({
-            url: url
-        })
-        .then(async(dbLinkObj) => {
-            let dbPromise;
-            
-            console.log('----------------------------------------');
-            console.log('Start First then ', url);
-            console.log('dbLinkObj ', dbLinkObj);
-
-            // Create URL Object
-            const newUrl = new URL(url);
-            const linkObj = { 
-                url : newUrl.origin + newUrl.pathname,
-                count : 1,
-                params : []
-            };
-            newUrl.searchParams.forEach((value, property) => {
-                linkObj.params.push(property);
-            });
-
-            console.log('linkObj ', linkObj);
-
-            if(dbLinkObj) {
-                // Update old object  
-                dbLinkObj.count++;
-                linkObj.params.forEach( param => {
-                    if(!dbLinkObj.params.includes(param)) {
-                        dbLinkObj.params.push(param);
-                        paramMismatch = true;
-                    }
-                });
-                dbPromise = dbLinkObj.save();
-                console.log('Saving Object', dbPromise);
-            } else {
-                paramMismatch = true;
-                dbPromise = Link.create(linkObj);
-                console.log('Creating Object ', dbPromise);
-            }
-            
-            console.log('Before await dbPromise ', url);
-
-            // return dbPromise;
-            const record = await dbPromise;
-
-            console.log('After awaiting dbPromise ', url );
-            console.log('record =>', record);
-            console.log('paramMismatch =>', paramMismatch);
-
-            if(paramMismatch){
-                return axios.get(url)
-                .then(response => {
-
-                    console.log('----------------------------------------');
-                    console.log('Start nested then', url);
-
-                    const $ = cheerio.load(response.data);
-                    const anchortags = $('a');
-                    $(anchortags).each(function(i,tag){
-                        const link = $(tag).attr('href');
-                        if(link.startsWith('https://medium.com')) {
-         
-                            // Create URL Object
-                            // const newUrl = new URL(link);
-                            // const linkObj = { 
-                            // url : newUrl.origin + newUrl.pathname,
-                            // count : 1,
-                            // params : []
-                            // };
-                            // newUrl.searchParams.forEach((value, property) => {
-                            //     linkObj.params.push(property);
-                            // });
-         
-                            // Check if object exists
-                            // let existingLinkObj = globalLinksObjectArray.find(object => {
-                            //     if(object.url == linkObj.url){
-                            //         return object;
-                            //     }
-                            // });
+        return axios.get(url)
+        .then(response => {
+            const $ = cheerio.load(response.data);
+            const anchortags = $('a');
+            $(anchortags).each(function(i,tag){
+                const link = $(tag).attr('href');
+                if(link.startsWith('https://medium.com')) {
         
-                            // let paramMismatch = false;
-                            // if(existingLinkObj){
-                            //     // Update old object  
-                            //     existingLinkObj.count++;
-                            //     linkObj.params.forEach( param => {
-                            //         if(!existingLinkObj.params.includes(param)) {
-                            //             existingLinkObj.params.push(param);
-                            //             paramMismatch = true;
-                            //         }
-                            //     }); 
-                            // } else {
-                            //     // Insert newly created Object
-                            //     globalLinksObjectArray.push(linkObj);
-                            //     paramMismatch = true;
-                            // }
-         
-                            globalLinksArray.push(link);
+                    // Create URL Object
+                    const newUrl = new URL(link);
+                    const linkObj = { 
+                    url : newUrl.origin + newUrl.pathname,
+                    count : 1,
+                    params : []
+                    };
+                    newUrl.searchParams.forEach((value, property) => {
+                        linkObj.params.push(property);
+                    });
+        
+                    // Check if object exists
+                    let existingLinkObj = globalLinksObjectArray.find(object => {
+                        if(object.url == linkObj.url){
+                            return object;
                         }
                     });
+        
+                    let paramMismatch = false;
+                    if(existingLinkObj){
+                        // Update old object  
+                        existingLinkObj.count++;
+                        linkObj.params.forEach( param => {
+                            if(!existingLinkObj.params.includes(param)) {
+                                existingLinkObj.params.push(param);
+                                paramMismatch = true;
+                            }
+                        }); 
+                    } else {
+                        // Insert newly created Object
+                        globalLinksObjectArray.push(linkObj);
+                        paramMismatch = true;
+                    }
+        
+                    if(paramMismatch) globalLinksArray.push(link);
+                }
+            });
 
-                    console.log('************** globalLinksArray **************', globalLinksArray);
-                    // console.log('************** globalLinksObjectArray **************', globalLinksObjectArray);
-                    console.log('End nested then', url);
-                    console.log('++++++++++++++++++++++++++++++++');
-                    
-                    return resolve();
-                })
-            }
-            else {
-                return resolve();
-            }
-
+            console.log('************** globalLinksArray **************', globalLinksArray);
+            console.log('************** globalLinksObjectArray **************', globalLinksObjectArray);
+            console.log('Return back to hypercraler');
+            return resolve();
         })
         .catch(err => {
             console.log('******** err in crawlAndPraseUrl ********');
@@ -164,6 +99,56 @@ const crawlAndParseUrl = (url) => {
         })
     });
 };
+
+
+const persistData = async () => {
+        let dbPromises = [];
+        console.log('Inside persistData');
+        for(let i = 0 ; i < globalLinksObjectArray.length; i++){
+            dbPromises.push(
+                Link.findOne({
+                    url: globalLinksObjectArray[i].url
+                })
+                .then((dbLinkObj) => {
+                    let dbPromise;
+                    
+                    console.log('----------------------------------------');
+                    console.log('Start First then ', globalLinksObjectArray[i].url);
+                    // console.log('dbLinkObj ', dbLinkObj);
+        
+                    if(dbLinkObj) {
+                        // Update old object  
+                        dbLinkObj.count++;
+                        globalLinksObjectArray[i].params.forEach( param => {
+                            if(!dbLinkObj.params.includes(param)) {
+                                dbLinkObj.params.push(param); 
+                            }
+                        });
+                        dbPromise = dbLinkObj.save();
+                        // console.log('Saving Object', dbPromise);
+                    } else { 
+                        dbPromise = Link.create(globalLinksObjectArray[i]);
+                        // console.log('Creating Object ', dbPromise);
+                    }
+                    
+                    console.log('Before return dbPromise ', globalLinksObjectArray[i].url);
+        
+                    return dbPromise;
+                })
+                .then(record => { 
+                    // console.log('record =>', record); 
+                    console.log('End of persistData');
+                    return resolve();
+                })
+                .catch(err => {
+                    console.log('******** err in persistData ********');
+                    console.log(err);
+                    return reject(err);
+                })
+            );
+        }
+        await Promise.all(dbPromises);
+}
 
 
 // Driver Function
@@ -175,7 +160,9 @@ const hyperlinkCrawler = async (url) => {
         if( urlPromisesList.length >= limit || i == globalLinksArray.length ) {
             console.log('####### Inside ELSE ####### i is ' + i + ' globalLinksArray.length ' + globalLinksArray.length);
             const response = await Promise.all(urlPromisesList);
-            console.log('After Promise.all ');
+            console.log('After promise.all');
+            await persistData();
+            console.log('After persistData : i ' + i + ' globalLinksArray.length ' + globalLinksArray.length );
             i--;
             urlPromisesList = [];
         }
@@ -184,4 +171,5 @@ const hyperlinkCrawler = async (url) => {
             console.log('******** Inside IF ***** i is ' + i + ' globalLinksArray.length ' + globalLinksArray.length);
         }
     }
+    console.log('Outside for loop');
 };
