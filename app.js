@@ -1,15 +1,21 @@
 const cheerio = require('cheerio');
-const axios = require('axios');
+const rp = require('request-promise');
 const url = require('url');
 const mongoose = require('mongoose');
 const Link = require('./Models/linkModel');
-const { db } = require('./Models/linkModel');
-const { resolve } = require('path');
 require('dotenv').config();
+
 
 let limit = 5;
 let globalLinksArray = [];
 let globalLinksObjectArray = [];
+let options = {
+    method: 'GET',
+    url: null,
+    headers: {
+        'Cookie': process.env.cookie
+      }
+};
 
 
 // Connecting to Database
@@ -42,9 +48,10 @@ mongoose.connect(process.env.db_url,
 // Helper Function
 const crawlAndParseUrl = (url) => {  
     return new Promise(function (resolve, reject) {
-        return axios.get(url)
+        options.url = url;
+        return rp(options)
         .then(response => {
-            const $ = cheerio.load(response.data);
+            const $ = cheerio.load(response);
             const anchortags = $('a');
             $(anchortags).each(function(i,tag){
                 const link = $(tag).attr('href');
@@ -104,6 +111,7 @@ const persistData = async () => {
 
         for(let i = 0 ; i < globalLinksObjectArray.length; i++){
             dbPromises.push(
+                new Promise(function (resolve, reject) {
                 Link.findOne({
                     url: globalLinksObjectArray[i].url
                 })
@@ -132,8 +140,8 @@ const persistData = async () => {
                 .catch(err => {
                     console.log('******** err in persistData ********');
                     console.log(err);
-                    return reject(err);
                 })
+            })
             );
         }
         await Promise.all(dbPromises);
