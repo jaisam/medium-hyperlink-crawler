@@ -8,7 +8,6 @@ require('dotenv').config();
 
 let limit = 5;
 let globalLinksArray = [];
-let globalLinksObjectArray = [];
 let options = {
     method: 'GET',
     url: null,
@@ -45,123 +44,110 @@ mongoose.connect(process.env.db_url,
 });
 
 
-// Helper Function
-const crawlAndParseUrl = (url) => {  
-    return new Promise(function (resolve, reject) {
-        options.url = url;
-        return rp(options)
-        .then(response => {
-            const $ = cheerio.load(response);
-            const anchortags = $('a');
-            $(anchortags).each(function(i,tag){
-                const link = $(tag).attr('href');
-                if(link.startsWith('https://medium.com')) {
-        
-                    // Create URL Object
-                    const newUrl = new URL(link);
-                    const linkObj = { 
-                    url : newUrl.origin + newUrl.pathname,
-                    count : 1,
-                    params : []
-                    };
-                    newUrl.searchParams.forEach((value, property) => {
-                        linkObj.params.push(property);
-                    });
-        
-                    // Check if object exists
-                    let existingLinkObj = globalLinksObjectArray.find(object => {
-                        if(object.url == linkObj.url){
-                            return object;
-                        }
-                    });
-        
-                    let paramMismatch = false;
-                    if(existingLinkObj){
-                        // Update old object  
-                        existingLinkObj.count++;
-                        linkObj.params.forEach( param => {
-                            if(!existingLinkObj.params.includes(param)) {
-                                existingLinkObj.params.push(param);
-                                paramMismatch = true;
-                            }
-                        }); 
-                    } else {
-                        // Insert newly created Object
-                        globalLinksObjectArray.push(linkObj);
-                        paramMismatch = true;
-                    }
-        
-                    if(paramMismatch) globalLinksArray.push(link);
-                }
-            });
-
-            return resolve();
-        })
-        .catch(err => {
-            console.log('******** err in crawlAndPraseUrl ********');
-            console.log(err);
-            return reject(err);
-        })
+const createLinkObject = (url) => {
+    const newUrl = new URL(url);
+    const linkObj = { 
+        url : newUrl.origin + newUrl.pathname,
+        count : 1,
+        params : []
+    };
+    newUrl.searchParams.forEach((value, property) => {
+        linkObj.params.push(property);
     });
-};
+    return linkObj;
+}
 
 
-const persistData = async () => {
-        let dbPromises = []; 
+// Helper Function
+const crawlAndPersistUrl = async (linkObjects) => {
+    let promises = [];
+    Object.values(linkObjects).forEach(obj => {
+        promises.push(
+            new Promise(function (resolve, reject) {
+                let paramMismatch = false;
 
-        for(let i = 0 ; i < globalLinksObjectArray.length; i++){
-            dbPromises.push(
-                new Promise(function (resolve, reject) {
                 Link.findOne({
-                    url: globalLinksObjectArray[i].url
+                    url: obj.url
                 })
                 .then((dbLinkObj) => {
                     let dbPromise;
-        
+
                     if(dbLinkObj) {
                         // Update old object  
-                        dbLinkObj.count++;
-                        globalLinksObjectArray[i].params.forEach( param => {
+                        dbLinkObj.count += obj.count;
+                        obj.params.forEach(param => {
                             if(!dbLinkObj.params.includes(param)) {
-                                dbLinkObj.params.push(param); 
+                                dbLinkObj.params.push(param);
+                                paramMismatch = true;
                             }
                         });
-                        dbPromise = dbLinkObj.save(); 
-                    } else { 
-                        dbPromise = Link.create(globalLinksObjectArray[i]); 
+                        dbPromise = dbLinkObj.save();
+                    } else {
+                        // Create new object
+                        paramMismatch = true;
+                        dbPromise = Link.create(obj);
                     }
-                     
+
                     return dbPromise;
-                })
-                .then(record => { 
-                    // console.log('record =>', record);  
-                    return resolve();
-                })
+                    })
+                    .then(record => {
+                        if(paramMismatch){
+                            options.url = obj.url;
+                            return rp(options)
+                            .then(response => {
+                                const $ = cheerio.load(response);
+                                const anchortags = $('a');
+                                $(anchortags).each(function(i,tag){
+                                    const link = $(tag).attr('href');
+                                    if(link.startsWith('https://medium.com')) {
+                                        globalLinksArray.push(link);
+                                    }
+                                });
+                                return resolve();
+                            })
+                        }
+                        else {
+                            return resolve();
+                        }
+                    })
                 .catch(err => {
-                    console.log('******** err in persistData ********');
+                    console.log('******** err in crawlAndPraseUrl ********');
                     console.log(err);
+                    return reject(err);
                 })
             })
-            );
-        }
-        await Promise.all(dbPromises);
-}
+        );
+    }) 
+    return Promise.all(promises);
+};
 
 
 // Driver Function
 const hyperlinkCrawler = async (url) => {
-    let  urlPromisesList = [];
+    let linkObjects = {};
+    let batch_count = 0;
     globalLinksArray.push(process.env.url);
     
     for(let i = 0 ; i <= globalLinksArray.length ; i++){
-        if( urlPromisesList.length >= limit || i == globalLinksArray.length ) { 
-            const response = await Promise.all(urlPromisesList); 
-            await persistData(); 
+        if(Object.keys(linkObjects).length >= limit || i == globalLinksArray.length ) { 
+            await crawlAndPersistUrl(linkObjects); 
+
+            // Clearing data
             i--;
-            urlPromisesList = [];
+            linkObjects = {};
+            batch_count++;
+            console.log('Batch ' + batch_count + ' processed!');
+            console.log('Links remaining to be Parsed : ' + (globalLinksArray.length - i));
         }
-        else {
-            urlPromisesList.push(crawlAndParseUrl(globalLinksArray[i])); 
+        else { 
+            const linkObj = createLinkObject(globalLinksArray[i]);
+
+            if(linkObjects[linkObj.url]) {
+                linkObjects[linkObj.url].count++;
+            } 
+            else {
+                linkObjects[linkObj.url] = linkObj;
+            }
         }
     } 
 };
